@@ -5,7 +5,7 @@
 #include <time.h>
 #include "MQTTClient.h"
 
-#define DEBUG
+
 
 #define ADDRESS     "tcp://192.168.0.219:1883" // !! IP-address:Port-ID
 #define QOS         1
