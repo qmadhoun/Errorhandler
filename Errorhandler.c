@@ -5,7 +5,9 @@
 #include <time.h>
 #include "MQTTClient.h"
 
-#define ADDRESS     "tcp://172.20.10.4:1883" // !! IP-address:Port-ID
+#define DEBUG
+
+#define ADDRESS     "tcp://192.168.0.219:1883" // !! IP-address:Port-ID
 #define QOS         1
 #define CLIENTID    "Qossay"
 #define SUB_TOPIC   "ERROR_IN" 
@@ -20,6 +22,7 @@ volatile MQTTClient_deliveryToken deliveredtoken;
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//defining the struct 
 struct ErrorMessage {
     char code[10];
     char message[250];
@@ -29,6 +32,7 @@ struct ErrorMessage *head = NULL;
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//inserting the first field
 void insert_first(char *code, char *message) {
     struct ErrorMessage *new_record = (struct ErrorMessage *)malloc(sizeof(struct ErrorMessage));
     strcpy(new_record->code, code);
@@ -38,6 +42,7 @@ void insert_first(char *code, char *message) {
 }
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//inserting the next field
 void insert_next(struct ErrorMessage *list, char *code, char *message) {
     struct ErrorMessage *new_record = (struct ErrorMessage*) malloc(sizeof(struct ErrorMessage));
     strcpy(new_record->code, code);
@@ -47,6 +52,7 @@ void insert_next(struct ErrorMessage *list, char *code, char *message) {
 }
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//printing the list
 void print_list() {
     struct ErrorMessage *temp = head;
     int count = 1;
@@ -60,6 +66,7 @@ void print_list() {
 }
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//searching for the code in the list
 int search_list(struct ErrorMessage **list, char *code) {
     struct ErrorMessage *temp = head;
     while (temp != NULL) {
@@ -87,7 +94,7 @@ void delivered(void *context, MQTTClient_deliveryToken dt) {
 // This function is called upon when an incoming message from mqtt is arrived
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message) {
     char *error_in = message->payload;
-    char subsystem[50], error_code[10], parameter[100];
+    char subsystem[50], error_code[10], parameter[300];
     int sev_code;
     char  error_out[ ERR_OUT_LEN ] = "";
     char formatted_message[ERR_OUT_LEN] = "";
@@ -97,13 +104,17 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     // print incoming message
     printf( "msgarrvd: error_in: <%s>\n", error_in );   
 
+//with sscanf we read and seperate the fields of the incoming error
     int errorfields_read = sscanf(error_in, "%d;%49[^;];%9[^;];%99[^\n]", &sev_code, subsystem, error_code);
+
+//error handling method to check that the incoming fields are equal to 4
     if (errorfields_read < 3) {
         strncpy(error_out, "Invalid message format", ERR_OUT_LEN);
         printf("msgarrvd: error_out: <%s>\n", error_out);
         return 1; 
     }
 
+//error handling method to check the sev code is between 0 and 4, otherwise it's set to default (0)
     if (sev_code  > 4 || sev_code < 0)
     {
         sev_code = 0;
@@ -113,10 +124,10 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     // format error out msg
    
     struct ErrorMessage *found = NULL;
-     if (search_list(&found, error_code)) {
-        // Replace %s in the error message with the parameter
-        if (strstr(found->message, "%s")) {
-            snprintf(error_out, ERR_OUT_LEN, found->message, parameter);
+     if (search_list(&found, error_code)) { //we search first for the error code in the error message
+        
+        if (strstr(found->message, "%s")) { // we search in the message if there is %s (parameter). I FOUND THE function STRSTR ON THE INTERNET 
+            snprintf(error_out, ERR_OUT_LEN, found->message, parameter); // Replace %s in the error message with the parameter. I found the function SNPRINTF on the internet (stackoverflow). It's a better version of sprintif
         } else {
             strcpy(error_out, found->message);
         }
@@ -124,10 +135,11 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         snprintf(error_out, ERR_OUT_LEN, "Unknown error code: %s", error_code);
     }
 
+//this function is responsible for adding the timestap on the message. I copy pasted the method to detect the time from STACKOVERFLOW
     time_t now = time(NULL);
     char timestamp[30];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-    snprintf(formatted_message, ERR_OUT_LEN, "%s;%s;%s;%s;%s", timestamp, sev_code, subsystem, error_code, error_out);
+    snprintf(formatted_message, ERR_OUT_LEN, "%s;%d;%s;%s;%s", timestamp, sev_code, subsystem, error_code, error_out);
     strncpy(error_out,formatted_message,ERR_OUT_LEN);
 
     printf( "msgarrvd: error_out: <%s>\n", error_out );   
@@ -151,6 +163,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     int rc = MQTTClient_waitForCompletion(client, token, TIMEOUT );
     printf("Message with delivery token %d delivered, rc=%d\n", token, rc);
     printf( "Msg out:\t<%s>\n", error_out );
+    
 
     // Close the outgoing message queue
     MQTTClient_freeMessage(&message);
@@ -181,6 +194,7 @@ int main(int argc , char* argv[]) {
         return 1;
     } 
 
+//recognizing the language parameter to call the right txt file
     if (strcmp(argv[1] , "EN") == 0)
     {
         strcpy(filename, "/home/qmadhounrpi5/Downloads/Error_msg_EN.txt");
@@ -195,6 +209,7 @@ int main(int argc , char* argv[]) {
         strcpy(filename, "/home/qmadhounrpi5/Downloads/Error_msg_NLD.txt");
     }
 
+//error handling method
     else{
         printf("Error: Unsupported language, choose EN,FR,NLD\n");
         return 1;
@@ -212,11 +227,11 @@ int main(int argc , char* argv[]) {
     }
 
     while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-        if (buffer[0] == '#') {
+        if (buffer[0] == '#') { //we skip the lines that start with #
             continue;
         }
 
-        int fields_read = sscanf(buffer, "%9s %[^\n]", code, message);
+        int fields_read = sscanf(buffer, "%9s %[^\n]", code, message); //this is to read and seperate the error codes of the TXT error files 
 
         if (fields_read != 2) {
             printf("Invalid line fromat: %s\n", buffer);
